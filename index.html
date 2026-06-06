@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<!-- スマホで遊びやすいように、拡大禁止＆画面サイズフィット -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#d83a3a">
+<!-- 空のfaviconを指定して、file://でブラウザがアイコンを探しにいく際の
+     「Unsafe attempt to load URL ... 'file:' URLs are treated as unique security origins」
+     という無害な警告が出ないようにする -->
+<link rel="icon" href="data:,">
+<title>ぶちぶちモンブラン 〜タテかヨコか、フォークの行方〜</title>
+<script>
+/* ★最優先で読み込むエラーハンドラ：JSがどこかで落ちたら画面に赤帯で表示する。
+   （タイトル画面はCSSだけで表示されるため、JSが死んでいても見た目は正常で
+     「ボタンを押しても遷移しない」状態になる。その原因をすぐ可視化するため） */
+(function () {
+  function show(msg) {
+    var el = document.getElementById("fatal");
+    if (!el) { document.addEventListener("DOMContentLoaded", function () { show(msg); }); return; }
+    el.style.display = "block";
+    el.textContent = "⚠ エラー: " + msg + "\n（この内容を開発者に伝えてください）";
+  }
+  window.addEventListener("error", function (e) {
+    show((e.message || "不明なエラー") + "  [" + String(e.filename || "").split("/").pop() + ":" + (e.lineno || "?") + "]");
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    var r = e && e.reason; show("promise: " + ((r && r.message) || r));
+  });
+})();
+</script>
+<style>
+/* =========================================================
+   全体スタイル（クソゲーらしく安っぽくて愛嬌のある雰囲気）
+   ========================================================= */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0;
+  width: 100%; height: 100%;
+  overflow: hidden;
+  /* ゲーム中にスクロール・ピンチズームが起きないように */
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  font-family: "Hiragino Kaku Gothic ProN", "游ゴシック", "Yu Gothic", system-ui, sans-serif;
+  /* 安っぽいギンガムチェック（ピクニックのテーブルクロス風） */
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.32) 0 22px, transparent 22px 44px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.32) 0 22px, transparent 22px 44px),
+    #d83a3a;
+  color: #3a2410;
+}
+#app {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  height: 100dvh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 画面（シーン）の共通処理：表示/非表示の切り替え */
+.screen {
+  position: absolute; inset: 0;
+  display: none;
+  flex-direction: column;
+}
+.screen.active { display: flex; }
+
+/* =========================================================
+   共通ボタン（デカくて押しやすい）
+   ========================================================= */
+.btn {
+  border: 4px solid #5a3210;
+  border-radius: 16px;
+  background: #ffd24a;
+  color: #5a3210;
+  font-weight: 900;
+  font-size: 20px;
+  padding: 16px 20px;
+  cursor: pointer;
+  box-shadow: 0 5px 0 #b07a18;
+  transition: transform .05s, box-shadow .05s;
+  letter-spacing: 1px;
+}
+.btn:active { transform: translateY(4px); box-shadow: 0 1px 0 #b07a18; }
+.btn.big { font-size: 26px; padding: 22px; width: 100%; }
+.btn.sub { background: #fff4d6; font-size: 17px; }
+
+/* =========================================================
+   タイトル画面
+   ========================================================= */
+#title-screen {
+  align-items: center; justify-content: safe center;
+  gap: 16px; padding: 24px; text-align: center;
+  overflow-y: auto;   /* PCの広い画面や小さい画面でもボタンまで必ず見えるように */
+}
+.title-logo {
+  line-height: 1.05;
+  text-shadow: 3px 3px 0 #fff, 6px 6px 0 #5a3210;
+}
+.title-logo .l1 {
+  display: block;
+  /* vwだけだとPCの広い画面で巨大化するので clamp で上限(62px)を付ける */
+  font-size: clamp(38px, 12vw, 62px); font-weight: 900; color: #ffe14d;
+  transform: rotate(-3deg);
+  -webkit-text-stroke: 2px #5a3210;
+}
+.title-logo .l2 {
+  display: block;
+  font-size: clamp(12px, 4.4vw, 20px); font-weight: 900; color: #fff;
+  -webkit-text-stroke: 1px #5a3210;
+  margin-top: 6px; transform: rotate(1.5deg);
+}
+.title-fork { font-size: 56px; animation: bob 1.2s ease-in-out infinite; }
+@keyframes bob { 0%,100%{transform:translateY(0) rotate(-8deg)} 50%{transform:translateY(-10px) rotate(8deg)} }
+.title-buttons { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 320px; }
+.hi-score {
+  background: rgba(255,255,255,.85);
+  border: 3px dashed #5a3210; border-radius: 12px;
+  padding: 8px 16px; font-weight: 900; font-size: 18px;
+}
+
+/* =========================================================
+   ゲーム画面
+   ========================================================= */
+#game-screen { padding: 8px; }
+.hud {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+}
+.hud .score-box { justify-self: start; }
+.hud .mode-box  { justify-self: end; }
+.hud-label { font-size: 11px; font-weight: 900; opacity: .8; }
+#score { font-size: 28px; font-weight: 900; color: #fff; text-shadow: 2px 2px 0 #5a3210; }
+#timer {
+  font-size: 34px; font-weight: 900; color: #fff;
+  text-shadow: 2px 2px 0 #5a3210;
+  background: rgba(90,50,16,.35); border-radius: 12px; padding: 2px 14px;
+}
+#timer.danger { color: #ffe14d; animation: blink .5s steps(1) infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+#combo {
+  font-size: 13px; font-weight: 900; color: #ff3; height: 16px;
+  text-shadow: 1px 1px 0 #5a3210;
+}
+
+/* モード切り替えボタン */
+#mode-btn {
+  border: 3px solid #5a3210; border-radius: 12px;
+  padding: 6px 10px; font-weight: 900; font-size: 14px;
+  background: #fff4d6; color: #5a3210; cursor: pointer;
+  box-shadow: 0 3px 0 #b07a18; min-width: 92px; text-align: center;
+}
+#mode-btn:active { transform: translateY(3px); box-shadow: 0 0 0 #b07a18; }
+#mode-btn .mico { font-size: 18px; display: block; }
+#mode-btn.vertical   { background: #ffd0d0; }
+#mode-btn.horizontal { background: #d0e7ff; }
+
+/* キャンバス領域 */
+#canvas-wrap { position: relative; flex: 1; min-height: 0; }
+#game-canvas { display: block; width: 100%; height: 100%; }
+
+/* 耐久ゲージ */
+.gauge-wrap { padding: 4px 10px 6px; }
+.gauge-label { font-size: 12px; font-weight: 900; color: #fff; text-shadow: 1px 1px 0 #5a3210; margin-bottom: 2px; }
+.gauge-bg {
+  width: 100%; height: 20px; background: rgba(90,50,16,.5);
+  border: 3px solid #5a3210; border-radius: 12px; overflow: hidden;
+}
+#gauge-fill { height: 100%; width: 100%; background: #36c44b; transition: width .08s linear, background .2s; }
+
+/* 刺すボタン（超デカい） */
+.stab-wrap { padding: 6px 10px 14px; }
+#stab-btn {
+  width: 100%; height: 84px;
+  border: 5px solid #5a3210; border-radius: 20px;
+  background: linear-gradient(#ff8a5a, #ff5a2a);
+  color: #fff; font-size: 30px; font-weight: 900;
+  letter-spacing: 4px; cursor: pointer;
+  box-shadow: 0 6px 0 #a33010;
+  text-shadow: 2px 2px 0 #a33010;
+}
+#stab-btn.pressing { transform: translateY(5px); box-shadow: 0 1px 0 #a33010; background: linear-gradient(#ff6a3a, #e84a1a); }
+
+/* 低耐久時の赤フラッシュ */
+#flash {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle, transparent 40%, rgba(255,0,0,.55));
+  opacity: 0; z-index: 50;
+}
+/* 大きめの警告テキスト */
+#warn {
+  position: absolute; top: 38%; left: 50%; transform: translate(-50%,-50%) rotate(-6deg);
+  font-size: 30px; font-weight: 900; color: #fff;
+  text-shadow: 3px 3px 0 #c00, -2px -2px 0 #c00;
+  pointer-events: none; opacity: 0; z-index: 60; white-space: nowrap;
+}
+#warn.show { animation: warnpop .8s ease-out; }
+@keyframes warnpop { 0%{opacity:0; transform:translate(-50%,-50%) scale(.5) rotate(-6deg)} 20%{opacity:1; transform:translate(-50%,-50%) scale(1.15) rotate(-6deg)} 80%{opacity:1} 100%{opacity:0} }
+
+/* =========================================================
+   ゲームオーバー / ランキング / 操作説明（オーバーレイ）
+   ========================================================= */
+.overlay {
+  position: absolute; inset: 0; z-index: 100;
+  display: none; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center;
+  background: rgba(40,20,8,.82);
+  overflow-y: auto;
+}
+.overlay.active { display: flex; }
+.panel {
+  background: #fff7e6;
+  border: 5px solid #5a3210; border-radius: 20px;
+  padding: 20px; width: 100%; max-width: 360px;
+  box-shadow: 0 8px 0 rgba(0,0,0,.4);
+}
+.over-title { font-size: 30px; font-weight: 900; color: #c0392b; margin-bottom: 6px; }
+.over-title.good { color: #2e9e44; }
+.big-score { font-size: 48px; font-weight: 900; color: #5a3210; line-height: 1; }
+.over-sub { font-size: 15px; margin: 6px 0; font-weight: 700; }
+.over-msg {
+  font-size: 16px; font-weight: 900; color: #7a4a1a;
+  background: #ffe9bf; border: 2px dashed #c79a4a; border-radius: 10px;
+  padding: 8px; margin: 10px 0;
+}
+.name-area { margin: 10px 0; }
+#name-input {
+  width: 100%; font-size: 20px; font-weight: 900; text-align: center;
+  border: 3px solid #5a3210; border-radius: 10px; padding: 10px;
+}
+.rank-list { list-style: none; margin: 0; padding: 0; text-align: left; }
+.rank-list li {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 7px 10px; border-bottom: 2px dotted #c79a4a;
+  font-weight: 900; font-size: 16px;
+}
+.rank-list li .rk { width: 30px; color: #c0392b; }
+.rank-list li .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-list li:nth-child(1) .rk { color: #e8a800; }
+.rank-list .src { color: #888; font-size: 11px; align-self: center; }
+.howto-text { text-align: left; font-size: 15px; line-height: 1.7; font-weight: 700; }
+.howto-text b.v { color: #c0392b; }
+.howto-text b.h { color: #2563c0; }
+</style>
+</head>
+<body>
+<!-- 致命的エラーを画面に表示（原因特定用・通常は非表示） -->
+<div id="fatal" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#c0392b;color:#fff;font:bold 13px ui-monospace,monospace;padding:10px;white-space:pre-wrap;"></div>
+<div id="app">
+
+  <!-- ======================= タイトル画面 ======================= -->
+  <section id="title-screen" class="screen active">
+    <div class="title-fork">🍴</div>
+    <h1 class="title-logo">
+      <span class="l1">ぶちぶち<br>モンブラン</span>
+      <span class="l2">〜タテかヨコか、フォークの行方〜</span>
+    </h1>
+    <div class="hi-score">🏆 自己最高: <span id="title-hiscore">0</span></div>
+    <div class="title-buttons">
+      <button class="btn big" id="start-btn">ゲームスタート</button>
+      <button class="btn sub" id="howto-btn">操作説明</button>
+      <button class="btn sub" id="rank-btn">ランキングを見る</button>
+    </div>
+  </section>
+
+  <!-- ======================= ゲーム画面 ======================= -->
+  <section id="game-screen" class="screen">
+    <div class="hud">
+      <div class="score-box">
+        <div class="hud-label">SCORE</div>
+        <div id="score">0</div>
+        <div id="combo"></div>
+      </div>
+      <div class="timer-box" style="text-align:center">
+        <div class="hud-label">TIME</div>
+        <div id="timer">3:00</div>
+      </div>
+      <div class="mode-box">
+        <div class="hud-label">MODE（タップで切替）</div>
+        <button id="mode-btn" class="vertical">
+          <span class="mico">⬇️</span>たて刺し
+        </button>
+      </div>
+    </div>
+
+    <div id="canvas-wrap">
+      <canvas id="game-canvas"></canvas>
+      <div id="flash"></div>
+      <div id="warn"></div>
+    </div>
+
+    <div class="gauge-wrap">
+      <div class="gauge-label">構造耐久値 <span id="dura-pct">100</span>%</div>
+      <div class="gauge-bg"><div id="gauge-fill"></div></div>
+    </div>
+
+    <div class="stab-wrap">
+      <button id="stab-btn">押しっぱで刺す！</button>
+    </div>
+  </section>
+
+  <!-- ======================= ゲームオーバー ======================= -->
+  <div id="gameover-overlay" class="overlay">
+    <div class="panel">
+      <div class="over-title" id="over-title">モンブラン崩壊</div>
+      <div class="hud-label">FINAL SCORE</div>
+      <div class="big-score" id="final-score">0</div>
+      <div class="over-sub">食べた量： <span id="eaten-pct">0</span>%</div>
+      <div class="over-msg" id="over-msg">また一つクソゲーが生まれた…</div>
+
+      <div class="name-area" id="name-area" style="display:none">
+        <div class="hud-label" style="margin-bottom:6px">🎉 トップ10入り！ 名前を入力（10文字まで）</div>
+        <input id="name-input" maxlength="10" placeholder="ななし" />
+        <button class="btn sub" id="submit-btn" style="margin-top:10px; width:100%">ランキングに登録</button>
+      </div>
+
+      <button class="btn big" id="retry-btn" style="margin-top:8px">もう一度遊ぶ</button>
+      <button class="btn sub" id="over-rank-btn" style="margin-top:10px; width:100%">ランキングを見る</button>
+      <button class="btn sub" id="over-title-btn" style="margin-top:10px; width:100%">タイトルへ</button>
+    </div>
+  </div>
+
+  <!-- ======================= ランキング ======================= -->
+  <div id="ranking-overlay" class="overlay">
+    <div class="panel">
+      <div class="over-title" style="color:#5a3210">🏆 ランキング TOP10</div>
+      <ol class="rank-list" id="rank-list"><li>読み込み中…</li></ol>
+      <button class="btn big" id="rank-close-btn" style="margin-top:14px">とじる</button>
+    </div>
+  </div>
+
+  <!-- ======================= 操作説明 ======================= -->
+  <div id="howto-overlay" class="overlay">
+    <div class="panel">
+      <div class="over-title" style="color:#5a3210">あそびかた</div>
+      <div class="howto-text">
+        🍴 <b>「刺す」ボタンを押しっぱなし</b>でモンブランを<br>ぶちぶち食べてスコアを稼ごう！<br><br>
+        フォークの位置は<b>勝手に動く</b>ので、好きな位置で押すだけ。<br><br>
+        <b class="v">⬇️ たて刺し</b>：深く刺して<b>高得点</b>。でも<b>崩れやすい！</b><br>
+        <b class="h">➡️ よこ刺し</b>：浅く削って<b>安全</b>。でも<b>地味…</b><br><br>
+        右上のボタンで<b>いつでもモード切替</b>。<br>
+        耐久値が0になると<b>崩壊（ゲームオーバー）</b>。<br>
+        制限時間は<b>3分</b>。崩さず食べ尽くせたら…？<br><br>
+        💡 長く押し続けると<b>コンボ倍率UP</b>（欲張り注意）
+      </div>
+      <button class="btn big" id="howto-close-btn" style="margin-top:14px">わかった</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* =================================================================
+   ぶちぶちモンブラン  —  メインスクリプト
+   1ファイル完結 / Canvas2D + requestAnimationFrame / Web Audio API
+   ================================================================= */
+
+/* -----------------------------------------------------------------
+   ★調整パラメータ（ここをいじるとゲームバランスが変わります）
+   下の方に「調整ガイド」もコメントしてあります。
+   ----------------------------------------------------------------- */
+const CFG = {
+  TIME_LIMIT: 180,        // 制限時間（秒）= 3分
+  START_DURABILITY: 100,  // 構造耐久値の初期値
+
+  // --- たてモード（縦刺し）：高得点・崩れやすい ---
+  V_SCORE_PER_SEC: 150,   // 1秒あたりの獲得スコア
+  V_DURA_PER_SEC: 12,     // 1秒あたりの耐久減少
+  V_EAT_PER_SEC: 4.5,     // 1秒あたりの「食べた量」増加
+  V_ROT_SPEED: 2.0,       // フォークが外周を回る速さ（rad/秒）
+
+  // --- よこモード（横刺し）：低得点・崩れにくい ---
+  H_SCORE_PER_SEC: 40,    // 1秒あたりの獲得スコア
+  H_DURA_PER_SEC: 1.8,    // 1秒あたりの耐久減少（緩やか）
+  H_EAT_PER_SEC: 2.2,     // 1秒あたりの「食べた量」増加
+  H_OSC_SPEED: 3.0,       // フォークが上下に往復する速さ
+
+  // --- コンボ（長押しボーナス）---
+  COMBO_THRESHOLD: 3.0,   // 連続◯秒で倍率発動
+  COMBO_MULT: 1.2,        // 倍率
+
+  // --- 単発タップ（保険）---
+  TAP_SCORE: 25,          // タップ1回のスコア
+  TAP_EAT: 0.7,           // タップ1回の食べた量
+  TAP_DURA: 0.8,          // タップ1回の耐久減少
+
+  // --- 演出・しきい値 ---
+  WARN_DURABILITY: 30,    // この%を切ると警告（揺れ・赤フラッシュ）
+  OVER_PRESS_WARN: 5.0,   // 連続◯秒押し続けたら「刺しすぎ注意！」
+
+  // --- ボーナス ---
+  TIME_BONUS_PER_SEC: 8,  // 完食時：残り時間1秒あたり
+  COMPLETE_BONUS: 5000,   // 完食ボーナス
+
+  // --- パフォーマンス上限 ---
+  MAX_PARTICLES: 50,      // パーティクル最大数
+  MAX_EATMARKS: 160,      // 食べた跡の最大数
+};
+
+/* -----------------------------------------------------------------
+   ★Supabase 設定（ランキング用・任意）
+   ・未設定でも localStorage で動きます（すぐ遊べます）
+   ・使う場合は下のURL/keyを自分の値に置き換えてください
+   ・テーブル作成SQLはファイル末尾のコメント参照
+   ----------------------------------------------------------------- */
+const SUPABASE_URL = "";       // ← ここにSupabaseのProject URLを入れてください 例: https://xxxx.supabase.co
+const SUPABASE_ANON_KEY = "";  // ← ここにanon publicキーを入れてください
+let supa = null;               // 初期化後にクライアントが入る
+
+/* =================================================================
+   ゲーム状態
+   ================================================================= */
+let state = "title";          // title / playing / over
+let score = 0;
+let durability = CFG.START_DURABILITY;
+let eaten = 0;                 // 食べた量（0〜100）
+let timeLeft = CFG.TIME_LIMIT;
+let mode = "vertical";        // vertical（たて）/ horizontal（よこ）
+
+let isPressing = false;       // 長押し中フラグ（ゲームループ内で判定）
+let pressDuration = 0;        // 連続押し時間（秒）
+let comboMult = 1;            // 現在のコンボ倍率
+
+let forkAngle = 0;            // たてモードの回転角
+let forkPhase = 0;            // よこモードの往復位相
+
+let eatMarks = [];            // 食べた跡 {x,y,r}
+let particles = [];           // クリーム飛び散り {x,y,vx,vy,life,r,c}
+let popups = [];              // 浮かぶテキスト {x,y,life,text,c,vy}
+
+let shake = 0;                // 画面揺れ強度
+let collapsing = false;       // 崩壊アニメ中
+let collapseT = 0;            // 崩壊経過時間
+let warnTimer = 0;            // 「刺しすぎ注意」クールダウン
+let chestnutTimer = 8;        // 栗が落ちてくる小イベントのタイマー
+let lastMarkTime = 0;         // 食べ跡を打つ間引き用
+let lastBuchi = 0;            // ぶちぶち音の間引き用
+let nowMs = 0;                // 現在時刻（performance.now）
+
+/* キャンバス関連 */
+const canvas = document.getElementById("game-canvas");
+const ctx = canvas.getContext("2d");
+let W = 0, H = 0, dpr = 1, cx = 0, cy = 0, R = 0;
+
+/* DOM参照 */
+const $ = (id) => document.getElementById(id);
+const scoreEl = $("score"), timerEl = $("timer"), comboEl = $("combo");
+const gaugeEl = $("gauge-fill"), duraPctEl = $("dura-pct");
+const modeBtn = $("mode-btn"), stabBtn = $("stab-btn");
+const flashEl = $("flash"), warnEl = $("warn");
+
+/* =================================================================
+   キャンバス初期化（解像度をデバイスに合わせる）
+   ================================================================= */
+function setupCanvas() {
+  const wrap = $("canvas-wrap");
+  const rect = wrap.getBoundingClientRect();
+  W = rect.width; H = rect.height;
+  dpr = Math.min(window.devicePixelRatio || 1, 2); // 2倍まで（負荷対策）
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx = W / 2;
+  cy = H * 0.54;                       // モンブランの中心
+  R = Math.min(W, H) * 0.30;           // モンブランのサイズ
+}
+window.addEventListener("resize", () => { if (state === "playing") setupCanvas(); });
+
+/* =================================================================
+   サウンド（Web Audio APIでその場生成）
+   ================================================================= */
+let ac = null, noiseBuf = null, masterGain = null;
+function initAudio() {
+  if (ac) return;
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = ac.createGain();
+    masterGain.gain.value = 0.8;
+    masterGain.connect(ac.destination);
+    // 1秒分のホワイトノイズを作っておく（ぶちぶち音の素材）
+    const len = ac.sampleRate;
+    noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  } catch (e) { /* 音が出せない環境でも無視して続行 */ }
+}
+
+// 「ぶちっ」音：ノイズ＋バンドパス。たて=低く重い、よこ=軽く高い
+function playBuchi(isV) {
+  if (!ac) return;
+  const t = ac.currentTime;
+  const src = ac.createBufferSource(); src.buffer = noiseBuf;
+  const bp = ac.createBiquadFilter(); bp.type = "bandpass";
+  bp.frequency.value = isV ? 260 + Math.random() * 140 : 850 + Math.random() * 600;
+  bp.Q.value = isV ? 2.5 : 6;
+  const g = ac.createGain();
+  const dur = isV ? 0.09 + Math.random() * 0.05 : 0.04 + Math.random() * 0.025;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(isV ? 0.55 : 0.32, t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(bp); bp.connect(g); g.connect(masterGain);
+  src.start(t); src.stop(t + dur + 0.02);
+}
+
+// 崩壊音：ノイズの轟音＋低い唸り
+function playCrash() {
+  if (!ac) return;
+  const t = ac.currentTime;
+  const src = ac.createBufferSource(); src.buffer = noiseBuf;
+  const lp = ac.createBiquadFilter(); lp.type = "lowpass";
+  lp.frequency.setValueAtTime(1400, t);
+  lp.frequency.exponentialRampToValueAtTime(150, t + 0.7);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.9, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.8);
+  src.connect(lp); lp.connect(g); g.connect(masterGain);
+  src.start(t); src.stop(t + 0.8);
+  const o = ac.createOscillator(); o.type = "sawtooth";
+  o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.5);
+  const g2 = ac.createGain();
+  g2.gain.setValueAtTime(0.4, t); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  o.connect(g2); g2.connect(masterGain); o.start(t); o.stop(t + 0.5);
+}
+
+// 小イベント音（栗ぽとっ）
+function playPop() {
+  if (!ac) return;
+  const t = ac.currentTime;
+  const o = ac.createOscillator(); o.type = "sine";
+  o.frequency.setValueAtTime(700, t); o.frequency.exponentialRampToValueAtTime(180, t + 0.15);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.3, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+  o.connect(g); g.connect(masterGain); o.start(t); o.stop(t + 0.2);
+}
+
+// 振動（対応端末のみ）
+function vibrate(ms) { if (navigator.vibrate) navigator.vibrate(ms); }
+
+/* =================================================================
+   フォークの現在位置を計算
+   ・たて：外周を円運動（楕円軌道で奥行きを表現）
+   ・よこ：縦方向を上下に往復
+   ================================================================= */
+function forkPos() {
+  if (mode === "vertical") {
+    const r = R * 0.78;
+    return { x: cx + Math.cos(forkAngle) * r, y: cy + Math.sin(forkAngle) * r * 0.55 };
+  } else {
+    const topY = cy - R * 0.75, botY = cy + R * 0.5;
+    const tt = (Math.sin(forkPhase) + 1) / 2;
+    return { x: cx, y: topY + (botY - topY) * tt };
+  }
+}
+
+/* =================================================================
+   ゲーム開始 / リセット
+   ================================================================= */
+function startGame() {
+  initAudio();
+  if (ac && ac.state === "suspended") ac.resume();
+  score = 0; durability = CFG.START_DURABILITY; eaten = 0;
+  timeLeft = CFG.TIME_LIMIT; mode = "vertical";
+  isPressing = false; pressDuration = 0; comboMult = 1;
+  forkAngle = 0; forkPhase = 0;
+  eatMarks = []; particles = []; popups = [];
+  shake = 0; collapsing = false; collapseT = 0;
+  warnTimer = 0; chestnutTimer = 8;
+  updateModeButton();
+  showScreen("game");
+  setupCanvas();
+  state = "playing";
+}
+
+/* =================================================================
+   毎フレームの更新処理
+   ================================================================= */
+function update(dt) {
+  // --- 崩壊アニメ中は崩壊だけ進める ---
+  if (collapsing) {
+    collapseT += dt;
+    updateParticles(dt);
+    shake = Math.max(0, 14 * (1 - collapseT / 1.2));
+    if (collapseT > 1.6) finishGameOver();
+    return;
+  }
+
+  // --- 残り時間 ---
+  timeLeft -= dt;
+  if (timeLeft <= 0) { timeLeft = 0; endGame("time"); return; }
+
+  // --- フォークは常に動く（押していなくても）---
+  forkAngle += dt * CFG.V_ROT_SPEED;
+  forkPhase += dt * CFG.H_OSC_SPEED;
+
+  // --- 長押し中の処理 ---
+  if (isPressing) {
+    pressDuration += dt;
+    comboMult = pressDuration >= CFG.COMBO_THRESHOLD ? CFG.COMBO_MULT : 1;
+    const isV = mode === "vertical";
+    const sps = isV ? CFG.V_SCORE_PER_SEC : CFG.H_SCORE_PER_SEC;
+    const dps = isV ? CFG.V_DURA_PER_SEC : CFG.H_DURA_PER_SEC;
+    const eps = isV ? CFG.V_EAT_PER_SEC : CFG.H_EAT_PER_SEC;
+
+    score += sps * comboMult * dt;
+    durability -= dps * dt;
+    eaten += eps * dt;
+
+    // 食べた跡を軌跡として残す（間引き）
+    if (nowMs - lastMarkTime > 28) {
+      const p = forkPos();
+      addEatMark(p.x, p.y, isV ? 9 : 6);
+      lastMarkTime = nowMs;
+    }
+    // ぶちぶち音＋クリーム飛び散り（少しランダムな間隔で）
+    const interval = isV ? 90 + Math.random() * 60 : 55 + Math.random() * 40;
+    if (nowMs - lastBuchi > interval) {
+      playBuchi(isV);
+      vibrate(isV ? 22 : 10);
+      spawnCream(isV ? 3 : 2);
+      lastBuchi = nowMs;
+    }
+    // 刺しすぎ注意！
+    if (pressDuration > CFG.OVER_PRESS_WARN && warnTimer <= 0) {
+      showWarn("刺しすぎ注意！"); warnTimer = 2.5;
+    }
+    // 終了判定
+    if (eaten >= 100) { eaten = 100; endGame("complete"); return; }
+    if (durability <= 0) { durability = 0; startCollapse(); return; }
+  } else {
+    pressDuration = 0; comboMult = 1;
+  }
+
+  // --- 栗ぽとっ小イベント ---
+  chestnutTimer -= dt;
+  if (chestnutTimer <= 0) {
+    chestnutEvent();
+    chestnutTimer = 7 + Math.random() * 9;
+  }
+
+  // --- 低耐久で画面揺れ ---
+  shake = durability < CFG.WARN_DURABILITY
+    ? (CFG.WARN_DURABILITY - durability) / CFG.WARN_DURABILITY * 7
+    : 0;
+
+  if (warnTimer > 0) warnTimer -= dt;
+  updateParticles(dt);
+  updatePopups(dt);
+}
+
+/* 栗が勝手に落ちてくる小イベント（得点微増 or 耐久微減） */
+function chestnutEvent() {
+  playPop();
+  if (Math.random() < 0.55) {
+    const bonus = 80 + Math.floor(Math.random() * 80);
+    score += bonus;
+    addPopup(cx + (Math.random() - .5) * R, cy - R, "栗ボーナス +" + bonus, "#2e9e44");
+  } else {
+    const dmg = 2 + Math.random() * 4;
+    durability = Math.max(0, durability - dmg);
+    addPopup(cx + (Math.random() - .5) * R, cy - R, "栗が直撃！耐久-" + dmg.toFixed(0), "#c0392b");
+  }
+}
+
+/* =================================================================
+   食べた跡・パーティクル・浮かぶテキスト
+   ================================================================= */
+function addEatMark(x, y, r) {
+  eatMarks.push({ x, y, r: r + Math.random() * 3 });
+  if (eatMarks.length > CFG.MAX_EATMARKS) eatMarks.shift();
+}
+
+function spawnCream(n) {
+  const p = forkPos();
+  for (let i = 0; i < n; i++) {
+    if (particles.length >= CFG.MAX_PARTICLES) particles.shift();
+    const a = Math.random() * Math.PI * 2;
+    const sp = 40 + Math.random() * 120;
+    particles.push({
+      x: p.x, y: p.y,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60,
+      life: 0.5 + Math.random() * 0.4, max: 0.9,
+      r: 3 + Math.random() * 4,
+      c: Math.random() < 0.5 ? "#caa15a" : "#a3702f",
+    });
+  }
+}
+
+// 崩壊時の盛大な飛び散り
+function spawnCollapse() {
+  for (let i = 0; i < CFG.MAX_PARTICLES; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 120 + Math.random() * 320;
+    particles.push({
+      x: cx + (Math.random() - .5) * R, y: cy,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 150,
+      life: 0.9 + Math.random() * 0.7, max: 1.6,
+      r: 4 + Math.random() * 7,
+      c: ["#caa15a", "#a3702f", "#e8c07a", "#6b4423"][Math.floor(Math.random() * 4)],
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    p.vy += 600 * dt;          // 重力
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+}
+
+function addPopup(x, y, text, c) {
+  popups.push({ x, y, text, c, life: 1.2, vy: -40 });
+}
+function updatePopups(dt) {
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i];
+    p.life -= dt; p.y += p.vy * dt;
+    if (p.life <= 0) popups.splice(i, 1);
+  }
+}
+
+/* 大きい警告テキスト（DOM） */
+function showWarn(text) {
+  warnEl.textContent = text;
+  warnEl.classList.remove("show");
+  void warnEl.offsetWidth; // アニメ再生のためリフロー
+  warnEl.classList.add("show");
+}
+
+/* =================================================================
+   描画
+   ================================================================= */
+function draw() {
+  ctx.clearRect(0, 0, W, H); // 背景はギンガムチェック（CSS）を透過
+
+  ctx.save();
+  if (shake > 0) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
+
+  drawPlate();
+  if (collapsing) drawCollapsed();
+  else { drawMontBlanc(); drawEatMarks(); drawFork(); }
+  ctx.restore();
+
+  drawParticles();
+  drawPopups();
+}
+
+// お皿
+function drawPlate() {
+  const baseY = cy + R * 0.62;
+  ctx.fillStyle = "rgba(0,0,0,.12)";
+  ellipse(cx, baseY + 10, R * 1.45, R * 0.42); ctx.fill();
+  ctx.fillStyle = "#f3f1f6";
+  ellipse(cx, baseY, R * 1.4, R * 0.42); ctx.fill();
+  ctx.fillStyle = "#dcd9e6";
+  ellipse(cx, baseY, R * 1.05, R * 0.30); ctx.fill();
+}
+
+// モンブラン本体（クリームのうねうね＋栗）
+function drawMontBlanc() {
+  const shrink = 1 - (eaten / 100) * 0.35;   // 食べるほど少し縮む
+  const r = R * shrink;
+  const apexY = cy - r * 1.25;
+  const baseY = cy + r * 0.55;
+
+  // 本体のベース（茶色のグラデ）
+  const grad = ctx.createLinearGradient(cx - r, 0, cx + r, 0);
+  grad.addColorStop(0, "#8a5a26");
+  grad.addColorStop(0.5, "#c8893f");
+  grad.addColorStop(1, "#7a4d20");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(cx, apexY);
+  ctx.bezierCurveTo(cx - r * 0.5, apexY + r * 0.5, cx - r, baseY - r * 0.3, cx - r, baseY);
+  ctx.bezierCurveTo(cx - r, baseY + r * 0.35, cx + r, baseY + r * 0.35, cx + r, baseY);
+  ctx.bezierCurveTo(cx + r, baseY - r * 0.3, cx + r * 0.5, apexY + r * 0.5, cx, apexY);
+  ctx.closePath();
+  ctx.fill();
+
+  // クリームのうねうね（縦のにょろにょろ線）
+  const strands = 16;
+  ctx.lineCap = "round";
+  for (let i = 0; i < strands; i++) {
+    const t = i / (strands - 1);
+    const baseX = cx + (t - 0.5) * 2 * r * 0.92;
+    const topX = cx + (t - 0.5) * 2 * r * 0.18;
+    const shade = i % 2 === 0 ? "#b07a34" : "#946127";
+    ctx.strokeStyle = shade;
+    ctx.lineWidth = r * 0.11;
+    ctx.beginPath();
+    ctx.moveTo(topX, apexY + r * 0.15);
+    const wob = Math.sin(i * 1.7) * r * 0.12;
+    ctx.bezierCurveTo(
+      topX + wob, apexY + r * 0.5,
+      baseX - wob, baseY - r * 0.4,
+      baseX, baseY
+    );
+    ctx.stroke();
+  }
+
+  // ハイライト（てかり）
+  ctx.fillStyle = "rgba(255,240,200,.25)";
+  ellipse(cx - r * 0.3, cy - r * 0.2, r * 0.18, r * 0.5); ctx.fill();
+
+  // てっぺんの栗（デフォルメ）
+  drawChestnut(cx, apexY - r * 0.05, r * 0.34);
+}
+
+// デフォルメ栗
+function drawChestnut(x, y, s) {
+  // 影
+  ctx.fillStyle = "rgba(0,0,0,.15)";
+  ellipse(x, y + s * 0.6, s * 0.9, s * 0.4); ctx.fill();
+  // 本体（茶色のしずく形）
+  ctx.fillStyle = "#6b4423";
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * 1.1);
+  ctx.bezierCurveTo(x + s, y - s * 0.6, x + s * 0.95, y + s * 0.6, x, y + s * 0.65);
+  ctx.bezierCurveTo(x - s * 0.95, y + s * 0.6, x - s, y - s * 0.6, x, y - s * 1.1);
+  ctx.closePath();
+  ctx.fill();
+  // 下のうす皮（クリーム色）
+  ctx.fillStyle = "#e3c48f";
+  ellipse(x, y + s * 0.45, s * 0.8, s * 0.28); ctx.fill();
+  // ハイライト
+  ctx.fillStyle = "rgba(255,255,255,.35)";
+  ellipse(x - s * 0.3, y - s * 0.35, s * 0.18, s * 0.28); ctx.fill();
+}
+
+// 食べた跡（黒い穴）
+function drawEatMarks() {
+  ctx.fillStyle = "rgba(60,35,15,.85)";
+  for (const m of eatMarks) {
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// フォーク
+function drawFork() {
+  const p = forkPos();
+  // 刺す向き：たて=中心方向、よこ=横（左から）
+  let ang;
+  if (mode === "vertical") ang = Math.atan2(cy - p.y, cx - p.x);
+  else ang = 0; // 右向き（横から刺す）
+  // 押している間は少し沈み込むアニメ
+  const sink = isPressing ? Math.sin(nowMs / 40) * 4 + 5 : 0;
+
+  // 目立つターゲットマーカー（脈動するリング）
+  const pulse = 1 + Math.sin(nowMs / 120) * 0.15;
+  ctx.strokeStyle = mode === "vertical" ? "rgba(255,60,60,.9)" : "rgba(60,120,255,.9)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 16 * pulse, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(ang);
+  ctx.translate(sink, 0); // 刺す方向へ沈む
+  // フォークの絵（柄＋4本の歯）を「中心の外側」に描く
+  const L = 46;
+  ctx.strokeStyle = "#9aa0aa";
+  ctx.lineWidth = 5; ctx.lineCap = "round";
+  // 柄
+  ctx.beginPath(); ctx.moveTo(-L - 26, 0); ctx.lineTo(-L + 4, 0); ctx.stroke();
+  // 歯（4本）
+  ctx.lineWidth = 3;
+  for (let i = -1.5; i <= 1.5; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-L + 4, i * 6);
+    ctx.lineTo(-6, i * 6);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// 崩壊したモンブラン（ぐしゃっと潰れた状態）
+function drawCollapsed() {
+  const t = Math.min(1, collapseT / 0.6);
+  const r = R * (1 + t * 0.4);
+  const flat = 0.3 + t * 0.5; // 潰れ具合
+  ctx.fillStyle = "#a3702f";
+  ellipse(cx, cy + R * 0.4, r, r * flat * 0.6); ctx.fill();
+  ctx.fillStyle = "#8a5a26";
+  ellipse(cx, cy + R * 0.45, r * 0.7, r * flat * 0.4); ctx.fill();
+  // 散らばった栗
+  ctx.save();
+  ctx.translate(cx + Math.sin(collapseT * 8) * 20, cy + R * 0.3);
+  drawChestnut(0, 0, R * 0.3);
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life / p.max);
+    ctx.fillStyle = p.c;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawPopups() {
+  ctx.textAlign = "center";
+  ctx.font = "900 20px system-ui, sans-serif";
+  for (const p of popups) {
+    ctx.globalAlpha = Math.max(0, p.life / 1.2);
+    ctx.lineWidth = 4; ctx.strokeStyle = "#fff";
+    ctx.strokeText(p.text, p.x, p.y);
+    ctx.fillStyle = p.c;
+    ctx.fillText(p.text, p.x, p.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// 楕円ヘルパー
+function ellipse(x, y, rx, ry) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); }
+
+/* =================================================================
+   HUD更新（毎フレーム）
+   ================================================================= */
+function updateHUD() {
+  scoreEl.textContent = Math.floor(score).toLocaleString();
+  // タイマー mm:ss
+  const m = Math.floor(timeLeft / 60), s = Math.floor(timeLeft % 60);
+  timerEl.textContent = m + ":" + String(s).padStart(2, "0");
+  timerEl.classList.toggle("danger", timeLeft <= 10);
+  // 耐久ゲージ（緑→黄→赤）
+  const d = Math.max(0, durability);
+  gaugeEl.style.width = d + "%";
+  duraPctEl.textContent = Math.ceil(d);
+  gaugeEl.style.background = d > 60 ? "#36c44b" : d > 30 ? "#f4c20d" : "#e8402a";
+  // コンボ表示
+  comboEl.textContent = comboMult > 1 ? "ぶちぶちコンボ! ×" + CFG.COMBO_MULT : "";
+  // 赤フラッシュ
+  if (durability < CFG.WARN_DURABILITY && !collapsing) {
+    flashEl.style.opacity = 0.3 + Math.abs(Math.sin(nowMs / 150)) * 0.5;
+  } else {
+    flashEl.style.opacity = 0;
+  }
+  stabBtn.classList.toggle("pressing", isPressing);
+}
+
+function updateModeButton() {
+  if (mode === "vertical") {
+    modeBtn.className = "vertical";
+    modeBtn.innerHTML = '<span class="mico">⬇️</span>たて刺し';
+  } else {
+    modeBtn.className = "horizontal";
+    modeBtn.innerHTML = '<span class="mico">➡️</span>よこ刺し';
+  }
+}
+
+/* =================================================================
+   メインループ
+   ================================================================= */
+let lastFrame = 0;
+function loop(ts) {
+  nowMs = ts;
+  let dt = (ts - lastFrame) / 1000;
+  lastFrame = ts;
+  if (dt > 0.05) dt = 0.05; // タブ復帰時などの暴走防止
+
+  if (state === "playing") {
+    update(dt);
+    draw();
+    updateHUD();
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* =================================================================
+   ゲーム終了処理
+   ================================================================= */
+function startCollapse() {
+  collapsing = true; collapseT = 0;
+  isPressing = false;
+  playCrash();
+  vibrate([60, 40, 120]);
+  spawnCollapse();
+}
+
+let lastResult = null;
+function endGame(reason) {
+  // reason: "time"（時間切れ）/ "complete"（完食）/ collapseは別経路
+  isPressing = false;
+  // ボーナス計算
+  let bonus = 0;
+  if (reason === "complete") {
+    bonus += CFG.COMPLETE_BONUS;
+    bonus += Math.floor(timeLeft) * CFG.TIME_BONUS_PER_SEC;
+  }
+  const finalScore = Math.floor(score + bonus);
+  lastResult = { reason, finalScore, eaten: Math.floor(eaten), durability: Math.floor(durability) };
+  showGameOver(lastResult);
+}
+
+// 崩壊アニメ終了後に呼ばれる
+function finishGameOver() {
+  collapsing = false;
+  const finalScore = Math.floor(score);
+  lastResult = { reason: "collapse", finalScore, eaten: Math.floor(eaten), durability: 0 };
+  showGameOver(lastResult);
+}
+
+/* ゲームオーバー画面表示 */
+const OVER_MESSAGES = [
+  "また一つクソゲーが生まれた…",
+  "フォークは満足したか？",
+  "そのモンブラン、成仏しました。",
+  "なんでこんなゲームにハマってるんだろう…",
+  "ぶちぶち中毒、おめでとう。",
+  "栗は何も悪くなかった。",
+];
+const COMPLETE_MESSAGES = [
+  "完食！フォーク、伝説になる。",
+  "お見事。皿までいきそうな勢い。",
+  "モンブラン、一片の悔いなし。",
+];
+const MOTTAINAI = [
+  "もったいない…まだ食べられたのに。",
+  "あぁ、半分以上残ってる…。",
+  "崩すために生まれてきたのか…？",
+];
+
+async function showGameOver(res) {
+  state = "over";
+  const isComplete = res.reason === "complete";
+  $("over-title").textContent = isComplete ? "🎉 完食クリア！" : (res.reason === "time" ? "タイムアップ！" : "モンブラン崩壊");
+  $("over-title").className = "over-title" + (isComplete ? " good" : "");
+  $("final-score").textContent = res.finalScore.toLocaleString();
+  $("eaten-pct").textContent = res.eaten;
+
+  // 感想文（クソゲーらしくランダム）
+  let pool = isComplete ? COMPLETE_MESSAGES : OVER_MESSAGES;
+  if (!isComplete && res.eaten < 50) pool = MOTTAINAI; // 食べ残し多いと「もったいない」
+  $("over-msg").textContent = pool[Math.floor(Math.random() * pool.length)];
+
+  // ハイスコア保存（localStorage）
+  saveHiScore(res.finalScore);
+
+  // トップ10判定 → 名前入力フォーム表示
+  const qualifies = await qualifiesForBoard(res.finalScore);
+  $("name-area").style.display = qualifies ? "block" : "none";
+  $("submit-btn").disabled = false;
+  $("submit-btn").textContent = "ランキングに登録";
+
+  showOverlay("gameover-overlay");
+}
+
+/* =================================================================
+   画面切り替え
+   ================================================================= */
+function showScreen(name) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  $(name === "title" ? "title-screen" : "game-screen").classList.add("active");
+  // タイトルに戻るときはオーバーレイも閉じる
+  if (name === "title") closeAllOverlays();
+}
+function showOverlay(id) { $(id).classList.add("active"); }
+function closeOverlay(id) { $(id).classList.remove("active"); }
+function closeAllOverlays() { document.querySelectorAll(".overlay").forEach(o => o.classList.remove("active")); }
+
+/* =================================================================
+   ハイスコア & ランキング（localStorage + 任意Supabase）
+   ================================================================= */
+const HISCORE_KEY = "montblanc_hiscore";
+const BOARD_KEY = "montblanc_board";
+
+// localStorageは環境（file://のFirefox、プライベートモード等）で例外を投げることが
+// あるので必ず保護する。失敗してもゲーム自体は止めない。
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+function getHiScore() { return parseInt(lsGet(HISCORE_KEY) || "0", 10); }
+function saveHiScore(s) {
+  if (s > getHiScore()) lsSet(HISCORE_KEY, String(s));
+  $("title-hiscore").textContent = getHiScore().toLocaleString();
+}
+
+function getLocalBoard() {
+  try { return JSON.parse(lsGet(BOARD_KEY) || "[]"); } catch (e) { return []; }
+}
+function saveLocalBoard(board) {
+  board.sort((a, b) => b.score - a.score);
+  lsSet(BOARD_KEY, JSON.stringify(board.slice(0, 10)));
+}
+
+// スクリプト動的読み込み（Supabase CDN）
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const sc = document.createElement("script");
+    sc.src = src; sc.onload = resolve; sc.onerror = reject;
+    document.head.appendChild(sc);
+  });
+}
+
+// Supabase初期化（設定があるときだけ）
+async function initSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2");
+    supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  } catch (e) { supa = null; /* 失敗してもlocalStorageで動く */ }
+}
+
+// トップ10取得（Supabase優先、ダメならlocal）
+async function getLeaderboard() {
+  if (supa) {
+    try {
+      const { data, error } = await supa
+        .from("scores").select("name,score")
+        .order("score", { ascending: false }).limit(10);
+      if (!error && data) return data.map(d => ({ ...d, src: "online" }));
+    } catch (e) {}
+  }
+  return getLocalBoard().map(d => ({ ...d, src: "local" }));
+}
+
+// このスコアがトップ10入りするか
+async function qualifiesForBoard(s) {
+  if (s <= 0) return false;
+  const board = await getLeaderboard();
+  if (board.length < 10) return true;
+  return s > board[board.length - 1].score;
+}
+
+// スコア登録（local常に保存 + Supabase設定時はそちらにも）
+async function submitScore(name, s) {
+  name = (name || "ななし").slice(0, 10);
+  // local
+  const board = getLocalBoard();
+  board.push({ name, score: s });
+  saveLocalBoard(board);
+  // supabase
+  if (supa) {
+    try { await supa.from("scores").insert({ name, score: s }); } catch (e) {}
+  }
+}
+
+// ランキング描画
+async function renderRanking() {
+  const list = $("rank-list");
+  list.innerHTML = "<li>読み込み中…</li>";
+  const board = await getLeaderboard();
+  if (board.length === 0) { list.innerHTML = "<li>まだ記録がありません</li>"; return; }
+  list.innerHTML = "";
+  board.forEach((row, i) => {
+    const li = document.createElement("li");
+    li.innerHTML =
+      '<span class="rk">' + (i + 1) + "</span>" +
+      '<span class="nm">' + escapeHtml(row.name) + "</span>" +
+      '<span class="src">' + (row.src === "online" ? "🌐" : "📱") + "</span>" +
+      '<span class="sc">' + Number(row.score).toLocaleString() + "</span>";
+    list.appendChild(li);
+  });
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+/* =================================================================
+   入力（タッチ／マウス両対応：Pointer Events）
+   ・押し続け判定は isPressing フラグで、実処理はゲームループ内
+   ・pointer系は touchstart/touchend/touchcancel を内包する
+   ================================================================= */
+function startPress(e) {
+  if (state !== "playing") return;
+  e.preventDefault();
+  initAudio();
+  if (ac && ac.state === "suspended") ac.resume();
+  if (!isPressing) {
+    isPressing = true;
+    pressDuration = 0;
+    // タップ保険：押した瞬間に1回ぶちっと刺す
+    const isV = mode === "vertical";
+    score += CFG.TAP_SCORE; eaten += CFG.TAP_EAT;
+    durability = Math.max(0, durability - CFG.TAP_DURA);
+    const p = forkPos(); addEatMark(p.x, p.y, isV ? 9 : 6);
+    playBuchi(isV); vibrate(isV ? 22 : 10); spawnCream(2);
+    lastBuchi = nowMs;
+    if (durability <= 0) startCollapse();
+  }
+}
+function endPress() { isPressing = false; }
+
+// 刺すボタン & キャンバスの両方で押し続け可能に
+["pointerdown"].forEach(ev => {
+  stabBtn.addEventListener(ev, startPress, { passive: false });
+  canvas.addEventListener(ev, startPress, { passive: false });
+});
+// 離す系はwindowで確実に拾う
+["pointerup", "pointercancel"].forEach(ev => window.addEventListener(ev, endPress));
+// 長押しの右クリックメニュー等を抑制
+document.addEventListener("contextmenu", e => { if (state === "playing") e.preventDefault(); });
+// タブが隠れたら刺すのを止める
+document.addEventListener("visibilitychange", () => { if (document.hidden) endPress(); });
+
+// モード切替（buttonのclickで。stabと干渉しないようstopPropagation）
+modeBtn.addEventListener("pointerdown", e => e.stopPropagation());
+modeBtn.addEventListener("click", () => {
+  if (state !== "playing") return;
+  mode = mode === "vertical" ? "horizontal" : "vertical";
+  updateModeButton();
+  pressDuration = 0; // モード変えたらコンボ仕切り直し
+  playPop();
+});
+
+/* =================================================================
+   各種ボタンのイベント
+   ================================================================= */
+$("start-btn").addEventListener("click", startGame);
+$("howto-btn").addEventListener("click", () => showOverlay("howto-overlay"));
+$("howto-close-btn").addEventListener("click", () => closeOverlay("howto-overlay"));
+$("rank-btn").addEventListener("click", () => { showOverlay("ranking-overlay"); renderRanking(); });
+$("rank-close-btn").addEventListener("click", () => closeOverlay("ranking-overlay"));
+
+$("retry-btn").addEventListener("click", () => { closeAllOverlays(); startGame(); });
+$("over-title-btn").addEventListener("click", () => { closeAllOverlays(); state = "title"; showScreen("title"); });
+$("over-rank-btn").addEventListener("click", () => { showOverlay("ranking-overlay"); renderRanking(); });
+
+$("submit-btn").addEventListener("click", async () => {
+  const btn = $("submit-btn");
+  btn.disabled = true; btn.textContent = "登録中…";
+  const name = $("name-input").value.trim();
+  await submitScore(name, lastResult.finalScore);
+  $("name-area").style.display = "none";
+  showOverlay("ranking-overlay"); renderRanking();
+});
+
+/* =================================================================
+   初期化
+   ================================================================= */
+saveHiScore(0);              // タイトルにハイスコア表示
+initSupabase();             // 設定があればオンラインランキング有効化
+
+/* =================================================================
+   ★調整ガイド（バランスをいじりたいとき）
+   -----------------------------------------------------------------
+   ・難しすぎて崩壊が早い  → V_DURA_PER_SEC / H_DURA_PER_SEC を小さく
+   ・点が稼げない          → V_SCORE_PER_SEC / H_SCORE_PER_SEC を大きく
+   ・完食を簡単にしたい    → V_EAT_PER_SEC / H_EAT_PER_SEC を大きく
+                            （完食したいなら eat/dura 比に注意：
+                             よこは dura<eat にすると崩さず食べ切れる）
+   ・緊張感をもっと早く    → WARN_DURABILITY を大きく（例:50）
+   ・コンボを強く          → COMBO_MULT を 1.5 などに
+   ・栗イベントを増やす    → chestnutTimer の再セット値を小さく
+   ・フォークが速すぎ      → V_ROT_SPEED / H_OSC_SPEED を小さく
+   ・パーティクル軽くする  → MAX_PARTICLES を 30 などに
+
+   ★Supabase テーブル作成SQL（SQL Editorで実行）：
+   -----------------------------------------------------------------
+   create table if not exists scores (
+     id bigint generated always as identity primary key,
+     name text not null,
+     score integer not null,
+     created_at timestamptz default now()
+   );
+   alter table scores enable row level security;
+   create policy "anyone can read"  on scores for select using (true);
+   create policy "anyone can insert" on scores for insert with check (true);
+   ================================================================= */
+</script>
+</body>
+</html>
