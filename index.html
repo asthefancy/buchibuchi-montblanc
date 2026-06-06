@@ -346,8 +346,11 @@ html, body {
       <div class="howto-text">
         🍴 <b>「刺す」ボタンを押しっぱなし</b>でモンブランを<br>ぶちぶち食べてスコアを稼ごう！<br><br>
         フォークの位置は<b>勝手に動く</b>ので、好きな位置で押すだけ。<br><br>
-        <b class="v">⬇️ たて刺し</b>：深く刺して<b>高得点</b>。でも<b>崩れやすい！</b><br>
-        <b class="h">➡️ よこ刺し</b>：浅く削って<b>安全</b>。でも<b>地味…</b><br><br>
+        モンブランの<b>クリームのすじ</b>は<b>毎ゲームでランダム</b>に<br>
+        <b class="v">タテすじ</b>か<b class="h">ヨコすじ</b>になる。よく見て刺す向きを選ぼう！<br>
+        ✅ <b>すじと同じ向きに刺す</b>と<b>高得点</b>。でも<b>崩れやすい！</b><br>
+        🛡 <b>すじと逆向きに刺す</b>と<b>安全</b>。でも<b>地味…</b><br>
+        （例：<b class="h">ヨコすじ→よこ刺し</b>が高得点／<b class="v">タテすじ→たて刺し</b>が高得点）<br><br>
         右上のボタンで<b>いつでもモード切替</b>。<br>
         耐久値が0になると<b>崩壊（ゲームオーバー）</b>。<br>
         制限時間は<b>3分</b>。崩さず食べ尽くせたら…？<br><br>
@@ -426,6 +429,8 @@ let durability = CFG.START_DURABILITY;
 let eaten = 0;                 // 食べた量（0〜100）
 let timeLeft = CFG.TIME_LIMIT;
 let mode = "vertical";        // vertical（たて）/ horizontal（よこ）
+let streakDir = "vertical";   // モンブランのクリームのすじの向き（開始時にランダム）。
+                              // すじと同じ向きに刺すと高得点・崩れやすい／逆向きは低得点・安全
 
 let isPressing = false;       // 長押し中フラグ（ゲームループ内で判定）
 let pressDuration = 0;        // 連続押し時間（秒）
@@ -572,6 +577,8 @@ function startGame() {
   if (ac && ac.state === "suspended") ac.resume();
   score = 0; durability = CFG.START_DURABILITY; eaten = 0;
   timeLeft = CFG.TIME_LIMIT; mode = "vertical";
+  // すじの向きを毎ゲームでランダムに決定（見た目＝高得点の刺し方のヒント）
+  streakDir = Math.random() < 0.5 ? "vertical" : "horizontal";
   isPressing = false; pressDuration = 0; comboMult = 1;
   forkAngle = 0; forkPhase = 0;
   eatMarks = []; particles = []; popups = [];
@@ -608,10 +615,13 @@ function update(dt) {
   if (isPressing) {
     pressDuration += dt;
     comboMult = pressDuration >= CFG.COMBO_THRESHOLD ? CFG.COMBO_MULT : 1;
-    const isV = mode === "vertical";
-    const sps = isV ? CFG.V_SCORE_PER_SEC : CFG.H_SCORE_PER_SEC;
-    const dps = isV ? CFG.V_DURA_PER_SEC : CFG.H_DURA_PER_SEC;
-    const eps = isV ? CFG.V_EAT_PER_SEC : CFG.H_EAT_PER_SEC;
+    // すじと同じ向きに刺す＝高得点だが崩れやすい（V_系パラメータ）。
+    // すじと逆向きに刺す＝低得点だが安全（H_系パラメータ）。
+    // ※縦すじ回は streakDir==="vertical" なので従来どおり「たて刺し＝高得点」。
+    const isHigh = (mode === streakDir);
+    const sps = isHigh ? CFG.V_SCORE_PER_SEC : CFG.H_SCORE_PER_SEC;
+    const dps = isHigh ? CFG.V_DURA_PER_SEC : CFG.H_DURA_PER_SEC;
+    const eps = isHigh ? CFG.V_EAT_PER_SEC : CFG.H_EAT_PER_SEC;
 
     score += sps * comboMult * dt;
     durability -= dps * dt;
@@ -620,15 +630,15 @@ function update(dt) {
     // 食べた跡を軌跡として残す（間引き）
     if (nowMs - lastMarkTime > 28) {
       const p = forkPos();
-      addEatMark(p.x, p.y, isV ? 9 : 6);
+      addEatMark(p.x, p.y, isHigh ? 9 : 6);
       lastMarkTime = nowMs;
     }
     // ぶちぶち音＋クリーム飛び散り（少しランダムな間隔で）
-    const interval = isV ? 90 + Math.random() * 60 : 55 + Math.random() * 40;
+    const interval = isHigh ? 90 + Math.random() * 60 : 55 + Math.random() * 40;
     if (nowMs - lastBuchi > interval) {
-      playBuchi(isV);
-      vibrate(isV ? 22 : 10);
-      spawnCream(isV ? 3 : 2);
+      playBuchi(isHigh);
+      vibrate(isHigh ? 22 : 10);
+      spawnCream(isHigh ? 3 : 2);
       lastBuchi = nowMs;
     }
     // 刺しすぎ注意！
@@ -791,9 +801,22 @@ function drawMontBlanc() {
   ctx.closePath();
   ctx.fill();
 
-  // クリームのうねうね（縦のにょろにょろ線）
-  const strands = 16;
+  // クリームのすじ：すじの向き（streakDir）で縦／横を描き分ける
   ctx.lineCap = "round";
+  if (streakDir === "horizontal") drawStrandsHorizontal(r, apexY, baseY);
+  else drawStrandsVertical(r, apexY, baseY);
+
+  // ハイライト（てかり）
+  ctx.fillStyle = "rgba(255,240,200,.25)";
+  ellipse(cx - r * 0.3, cy - r * 0.2, r * 0.18, r * 0.5); ctx.fill();
+
+  // てっぺんの栗（デフォルメ）
+  drawChestnut(cx, apexY - r * 0.05, r * 0.34);
+}
+
+// クリームのすじ（縦）：てっぺんから裾へ、にょろにょろの縦線
+function drawStrandsVertical(r, apexY, baseY) {
+  const strands = 16;
   for (let i = 0; i < strands; i++) {
     const t = i / (strands - 1);
     const baseX = cx + (t - 0.5) * 2 * r * 0.92;
@@ -811,13 +834,33 @@ function drawMontBlanc() {
     );
     ctx.stroke();
   }
+}
 
-  // ハイライト（てかり）
-  ctx.fillStyle = "rgba(255,240,200,.25)";
-  ellipse(cx - r * 0.3, cy - r * 0.2, r * 0.18, r * 0.5); ctx.fill();
-
-  // てっぺんの栗（デフォルメ）
-  drawChestnut(cx, apexY - r * 0.05, r * 0.34);
+// クリームのすじ（横）：円すいに巻きつくような横線（緯線）を裾に向かって積む
+function drawStrandsHorizontal(r, apexY, baseY) {
+  const bands = 11;
+  const topY = apexY + r * 0.18;             // てっぺんの栗のすぐ下から
+  for (let i = 0; i < bands; i++) {
+    const t = (i + 0.5) / bands;             // 0(上)〜1(裾)
+    const y = topY + (baseY - topY) * t;     // この帯の高さ
+    // その高さでの本体の半幅（上は細く、裾へ広がる）
+    const hw = r * 0.95 * (0.14 + 0.86 * Math.sqrt(t));
+    const sag = hw * 0.16;                    // 中央が少し下がる（前面に巻きつく立体感）
+    const shade = i % 2 === 0 ? "#b07a34" : "#946127";
+    ctx.strokeStyle = shade;
+    ctx.lineWidth = r * 0.10;
+    ctx.beginPath();
+    const steps = 16;
+    for (let s = 0; s <= steps; s++) {
+      const u = s / steps;                   // 0〜1（左→右）
+      const x = cx - hw + 2 * hw * u;
+      const arc = Math.sin(u * Math.PI) * sag;              // 端0・中央sag
+      const wob = Math.sin(u * Math.PI * 3 + i * 1.7) * r * 0.035;
+      const yy = y + arc + wob;
+      if (s === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+  }
 }
 
 // デフォルメ栗
@@ -1189,11 +1232,11 @@ function startPress(e) {
     isPressing = true;
     pressDuration = 0;
     // タップ保険：押した瞬間に1回ぶちっと刺す
-    const isV = mode === "vertical";
+    const isHigh = (mode === streakDir);
     score += CFG.TAP_SCORE; eaten += CFG.TAP_EAT;
     durability = Math.max(0, durability - CFG.TAP_DURA);
-    const p = forkPos(); addEatMark(p.x, p.y, isV ? 9 : 6);
-    playBuchi(isV); vibrate(isV ? 22 : 10); spawnCream(2);
+    const p = forkPos(); addEatMark(p.x, p.y, isHigh ? 9 : 6);
+    playBuchi(isHigh); vibrate(isHigh ? 22 : 10); spawnCream(2);
     lastBuchi = nowMs;
     if (durability <= 0) startCollapse();
   }
