@@ -974,7 +974,9 @@ function drawPopups() {
 }
 
 // 楕円ヘルパー
-function ellipse(x, y, rx, ry) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); }
+// 半径は負になりうる（裏ワザでeatenが膨らむと r<0 になる）ため Math.max で0に丸めて
+// ctx.ellipse の IndexSizeError を防ぐ。負の半径は描画上0扱いで問題ない。
+function ellipse(x, y, rx, ry) { ctx.beginPath(); ctx.ellipse(x, y, Math.max(0, rx), Math.max(0, ry), 0, 0, Math.PI * 2); }
 
 /* =================================================================
    HUD更新（毎フレーム）
@@ -1092,10 +1094,19 @@ async function showGameOver(res) {
   $("final-score").textContent = res.finalScore.toLocaleString();
   $("eaten-pct").textContent = res.eaten;
 
-  // 感想文（クソゲーらしくランダム）
-  let pool = isComplete ? COMPLETE_MESSAGES : OVER_MESSAGES;
-  if (!isComplete && res.eaten < 50) pool = MOTTAINAI; // 食べ残し多いと「もったいない」
-  $("over-msg").textContent = pool[Math.floor(Math.random() * pool.length)];
+  // 感想文。ただし高得点（≒裏ワザ稼ぎ）は通常メッセージより優先で特別表示。
+  let msg;
+  if (res.finalScore > 100000) {
+    msg = "神の領域 Your is GOD";
+  } else if (res.finalScore > 10000) {
+    msg = "まさか、裏技を見つけてしまうとは・・・";
+  } else {
+    // クソゲーらしくランダム
+    let pool = isComplete ? COMPLETE_MESSAGES : OVER_MESSAGES;
+    if (!isComplete && res.eaten < 50) pool = MOTTAINAI; // 食べ残し多いと「もったいない」
+    msg = pool[Math.floor(Math.random() * pool.length)];
+  }
+  $("over-msg").textContent = msg;
 
   // ハイスコア保存（localStorage）
   saveHiScore(res.finalScore);
